@@ -16,7 +16,7 @@ public:
   OrphanedKeyPathCheckingConsumer(const CompilerInstance &compiler)
     : ASTConsumer()
     , compiler(compiler)
-    , dependentKeyPathSelectorPrefix("keyPathsForValuesAffecting")
+    , prefix("keyPathsForValuesAffecting")
   { }
 
   virtual bool HandleTopLevelDecl(DeclGroupRef DG) {
@@ -28,16 +28,9 @@ public:
           continue;
 
         string name = MD->getNameAsString();
-        if (MD->isClassMethod()) {
-          if (name.length() > dependentKeyPathSelectorPrefix.length())
-            if (equal(dependentKeyPathSelectorPrefix.begin(),
-                      dependentKeyPathSelectorPrefix.end(),
-                      name.begin()))
-              affectingSelectorToLocation[name] = MD->getSelectorStartLoc().getLocWithOffset(dependentKeyPathSelectorPrefix.length());
-
-        } else { // instance method
-          getterSet.insert(name);
-        }
+        if (MD->isClassMethod() && name.length() > prefix.length())
+            if (equal(prefix.begin(), prefix.end(), name.begin()))
+              affectingSelectorToLocation[MD] = MD->getSelectorStartLoc().getLocWithOffset(prefix.length());
       }
     }
     return true;
@@ -46,17 +39,21 @@ public:
   virtual void HandleTranslationUnit(ASTContext &Ctx) {
     using namespace std;
 
-    for (map<const string, SourceLocation>::const_iterator i = affectingSelectorToLocation.begin(), e = affectingSelectorToLocation.end(); i != e; ++i) {
-      string capitalizedKeyName = i->first.substr(dependentKeyPathSelectorPrefix.length());
-      if (getterSet.count(capitalizedKeyName) > 0)
+    Ctx.Selectors.getNullarySelector(&Ctx.Idents.get(""));
+    for (map<const ObjCMethodDecl *, SourceLocation>::const_iterator i = affectingSelectorToLocation.begin(), e = affectingSelectorToLocation.end(); i != e; ++i) {
+      string selName = i->first->getNameAsString();
+      string capitalizedKeyName = selName.substr(prefix.length());
+      const ObjCInterfaceDecl *CI = i->first->getClassInterface();
+
+      if (classHasGetter(Ctx, CI, capitalizedKeyName))
         continue; // e.g. "keyPathsForValuesAffectingURL" can be satisfied by "URL".
       string lowercaseKeyName = capitalizedKeyName;
       lowercaseKeyName[0] = tolower(capitalizedKeyName[0]);
-      if (getterSet.count(lowercaseKeyName) > 0)
+      if (classHasGetter(Ctx, CI, lowercaseKeyName))
         continue; // e.g. "keyPathsForValuesAffectingFoo" can be satisfied by "foo"
-      if (getterSet.count("is" + capitalizedKeyName) > 0)
+      if (classHasGetter(Ctx, CI, "is" + capitalizedKeyName))
         continue; // e.g. "keyPathsForValuesAffectingFoo" can be satisfied by "isFoo"
-      if (getterSet.count("countOf" + capitalizedKeyName) > 0)
+      if (classHasGetter(Ctx, CI, "countOf" + capitalizedKeyName))
         continue; // e.g. "keyPathsForValuesAffectingFoo" can be satisfied by "countOfFoo" (indexed accessor - uncommon, so check this last)
 
       FullSourceLoc fullSourceLocation(i->second, compiler.getSourceManager());
@@ -68,9 +65,15 @@ public:
 
 private:
   const CompilerInstance &compiler;
-  std::string dependentKeyPathSelectorPrefix;
-  std::map<const std::string, SourceLocation> affectingSelectorToLocation;
-  std::set<std::string> getterSet;
+  std::string prefix;
+  std::map<const ObjCMethodDecl *, SourceLocation> affectingSelectorToLocation;
+
+  bool classHasGetter(ASTContext &Ctx, const ObjCInterfaceDecl *CI, std::string GetterString) {
+    Selector Sel = Ctx.Selectors.getNullarySelector(&Ctx.Idents.get(GetterString));
+    // It _seems_: lookupInstanceMethod checks public interface of class and superclasses
+    // lookupPrivateMethod checks methods of the target class defined in implementation, not declared in interface.
+    return CI->lookupInstanceMethod(Sel) != 0 || CI->lookupPrivateMethod(Sel) != 0;
+  }
 };
 
 
