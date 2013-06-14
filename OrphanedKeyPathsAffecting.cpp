@@ -45,7 +45,7 @@ public:
     using namespace std;
 
     Ctx.Selectors.getNullarySelector(&Ctx.Idents.get(""));
-    for (map<const ObjCMethodDecl *, SourceLocation>::const_iterator i = affectingSelectorToLocation.begin(), e = affectingSelectorToLocation.end(); i != e; ++i) {
+    for (llvm::DenseMap<const ObjCMethodDecl *, SourceLocation>::const_iterator i = affectingSelectorToLocation.begin(), e = affectingSelectorToLocation.end(); i != e; ++i) {
       string selName = i->first->getNameAsString();
       string capitalizedKeyName = selName.substr(prefix.length());
       const ObjCInterfaceDecl *CI = i->first->getClassInterface();
@@ -71,7 +71,7 @@ public:
 private:
   const CompilerInstance &compiler;
   std::string prefix;
-  std::map<const ObjCMethodDecl *, SourceLocation> affectingSelectorToLocation;
+  llvm::DenseMap<const ObjCMethodDecl *, SourceLocation> affectingSelectorToLocation;
 
   bool classHasGetter(ASTContext &Ctx, const ObjCInterfaceDecl *CI, std::string GetterString) {
     Selector Sel = Ctx.Selectors.getNullarySelector(&Ctx.Idents.get(GetterString));
